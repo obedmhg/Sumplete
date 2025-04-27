@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { AlertCircle, Lightbulb, RotateCcw, Eye, Check, X, Share2 } from 'lucide-react'
 import { cn } from "@/lib/utils"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -29,7 +30,8 @@ type GameState = {
 
 export function Sumplete() {
   const [gridSize, setGridSize] = useState(3) // This is now the actual game grid size (e.g., 3x3)
-  const [gameState, setGameState] = useState<GameState>(() => generateGame(gridSize))
+  const [allowNegative, setAllowNegative] = useState(false)
+  const [gameState, setGameState] = useState<GameState>(() => generateGame(gridSize, allowNegative))
   const [showMistakes, setShowMistakes] = useState(false)
 
   // Generate a new game when grid size changes
@@ -42,17 +44,23 @@ export function Sumplete() {
     if (typeof window !== "undefined") {
       localStorage.setItem("sumplete-game", JSON.stringify(gameState))
       localStorage.setItem("sumplete-size", gridSize.toString())
+      localStorage.setItem("sumplete-negative", allowNegative.toString())
     }
-  }, [gameState, gridSize])
+  }, [gameState, gridSize, allowNegative])
 
   // Load game from localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedGame = localStorage.getItem("sumplete-game")
       const savedSize = localStorage.getItem("sumplete-size")
+      const savedNegative = localStorage.getItem("sumplete-negative")
 
       if (savedSize) {
         setGridSize(Number.parseInt(savedSize))
+      }
+
+      if (savedNegative) {
+        setAllowNegative(savedNegative === "true")
       }
 
       if (savedGame) {
@@ -66,14 +74,18 @@ export function Sumplete() {
     }
   }, [])
 
-  function generateGame(size: number): GameState {
+  // Update the function signature to accept allowNegative parameter
+  function generateGame(size: number, useNegative: boolean): GameState {
     const grid: CellState[][] = []
     
     // Generate grid with random numbers
     for (let i = 0; i < size; i++) {
       const row: CellState[] = []
       for (let j = 0; j < size; j++) {
-        const value = Math.floor(Math.random() * 9) + 1
+        // Use negative numbers if allowed
+        const min = useNegative ? -9 : 1
+        const max = 9
+        const value = Math.floor(Math.random() * (max - min + 1)) + min
         const isSolution = Math.random() < 0.5
         row.push({
           value,
@@ -123,7 +135,7 @@ export function Sumplete() {
   }
 
   function resetGame() {
-    setGameState(generateGame(gridSize))
+    setGameState(generateGame(gridSize, allowNegative))
     setShowMistakes(false)
   }
 
@@ -480,26 +492,48 @@ export function Sumplete() {
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 justify-center items-center">
-              <Select value={gridSize.toString()} onValueChange={(value) => setGridSize(Number.parseInt(value))}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Select size" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3x3 (beginner)</SelectItem>
-                  <SelectItem value="4">4x4 (easy)</SelectItem>
-                  <SelectItem value="5">5x5 (intermediate)</SelectItem>
-                  <SelectItem value="6">6x6 (challenging)</SelectItem>
-                  <SelectItem value="7">7x7 (advanced)</SelectItem>
-                  <SelectItem value="8">8x8 (expert)</SelectItem>
-                  <SelectItem value="9">9x9 (master)</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={resetGame}>New Puzzle</Button>
-              <Button variant="outline" onClick={shareGame}>
-                <Share2 className="mr-2 h-4 w-4" />
-                Share
-              </Button>
+            {/* New Game Options Section */}
+            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-center font-medium mb-3">New Game Options</h3>
+              
+              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                <Select value={gridSize.toString()} onValueChange={(value) => setGridSize(Number.parseInt(value))}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="Select size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3x3 (beginner)</SelectItem>
+                    <SelectItem value="4">4x4 (easy)</SelectItem>
+                    <SelectItem value="5">5x5 (intermediate)</SelectItem>
+                    <SelectItem value="6">6x6 (challenging)</SelectItem>
+                    <SelectItem value="7">7x7 (advanced)</SelectItem>
+                    <SelectItem value="8">8x8 (expert)</SelectItem>
+                    <SelectItem value="9">9x9 (master)</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="allow-negative" 
+                    checked={allowNegative}
+                    onCheckedChange={(checked) => setAllowNegative(checked === true)}
+                  />
+                  <label 
+                    htmlFor="allow-negative" 
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Negative numbers?
+                  </label>
+                </div>
+              </div>
+              
+              <div className="flex justify-center gap-2 mt-4">
+                <Button onClick={resetGame}>New Puzzle</Button>
+                <Button variant="outline" onClick={shareGame}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share
+                </Button>
+              </div>
             </div>
           </div>
         )}
