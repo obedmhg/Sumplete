@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { AlertCircle, Lightbulb, RotateCcw, Eye, Check, X, Share2 } from "lucide-react"
+import { AlertCircle, Lightbulb, RotateCcw, Eye, Check, X, Share2 } from 'lucide-react'
 import { cn } from "@/lib/utils"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import React from "react"
@@ -28,10 +28,9 @@ type GameState = {
 }
 
 export function Sumplete() {
-  const [gridSize, setGridSize] = useState(4)
+  const [gridSize, setGridSize] = useState(3) // This is now the actual game grid size (e.g., 3x3)
   const [gameState, setGameState] = useState<GameState>(() => generateGame(gridSize))
   const [showMistakes, setShowMistakes] = useState(false)
-  const [showNewGameOptions, setShowNewGameOptions] = useState(false)
 
   // Generate a new game when grid size changes
   useEffect(() => {
@@ -68,13 +67,12 @@ export function Sumplete() {
   }, [])
 
   function generateGame(size: number): GameState {
-    const numberSize = size - 1
     const grid: CellState[][] = []
-
+    
     // Generate grid with random numbers
-    for (let i = 0; i < numberSize; i++) {
+    for (let i = 0; i < size; i++) {
       const row: CellState[] = []
-      for (let j = 0; j < numberSize; j++) {
+      for (let j = 0; j < size; j++) {
         const value = Math.floor(Math.random() * 9) + 1
         const isSolution = Math.random() < 0.5
         row.push({
@@ -91,9 +89,9 @@ export function Sumplete() {
 
     // Calculate row sums
     const rowSums: number[] = []
-    for (let i = 0; i < numberSize; i++) {
+    for (let i = 0; i < size; i++) {
       let sum = 0
-      for (let j = 0; j < numberSize; j++) {
+      for (let j = 0; j < size; j++) {
         if (grid[i][j].solution) {
           sum += grid[i][j].value
         }
@@ -103,9 +101,9 @@ export function Sumplete() {
 
     // Calculate column sums
     const colSums: number[] = []
-    for (let j = 0; j < numberSize; j++) {
+    for (let j = 0; j < size; j++) {
       let sum = 0
-      for (let i = 0; i < numberSize; i++) {
+      for (let i = 0; i < size; i++) {
         if (grid[i][j].solution) {
           sum += grid[i][j].value
         }
@@ -117,8 +115,8 @@ export function Sumplete() {
       grid,
       rowSums,
       colSums,
-      rowStatus: Array(numberSize).fill("pending"),
-      colStatus: Array(numberSize).fill("pending"),
+      rowStatus: Array(size).fill("pending"),
+      colStatus: Array(size).fill("pending"),
       gameWon: false,
       gameRevealed: false,
     }
@@ -127,7 +125,6 @@ export function Sumplete() {
   function resetGame() {
     setGameState(generateGame(gridSize))
     setShowMistakes(false)
-    setShowNewGameOptions(false)
   }
 
   function toggleCell(row: number, col: number) {
@@ -321,7 +318,8 @@ export function Sumplete() {
     }
   }
 
-  const numberSize = gridSize - 1
+  // Calculate the total grid size (including target sums)
+  const totalGridSize = gridSize + 1
 
   return (
     <Card className="w-full p-4 md:p-6 shadow-lg">
@@ -352,15 +350,15 @@ export function Sumplete() {
           <div
             className="grid gap-1"
             style={{
-              gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+              gridTemplateColumns: `repeat(${totalGridSize}, 1fr)`,
               width: "100%",
             }}
           >
             {/* First row: Column headers */}
-            {Array(gridSize)
+            {Array(totalGridSize)
               .fill(0)
               .map((_, index) => {
-                if (index === gridSize - 1) {
+                if (index === totalGridSize - 1) {
                   // Empty top-right corner
                   return <div key={`header-${index}`} className="flex items-center justify-center"></div>
                 } else {
@@ -427,10 +425,10 @@ export function Sumplete() {
             ))}
 
             {/* Bottom row: Column sums (repeated at bottom for clarity) */}
-            {Array(gridSize)
+            {Array(totalGridSize)
               .fill(0)
               .map((_, index) => {
-                if (index === gridSize - 1) {
+                if (index === totalGridSize - 1) {
                   // Empty bottom-right corner
                   return <div key={`footer-${index}`} className="flex items-center justify-center"></div>
                 } else {
