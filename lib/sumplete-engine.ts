@@ -149,6 +149,25 @@ export function cycleCell(
   return { state: updateGameStatus({ ...state, grid }), result }
 }
 
+/** Two-state delete toggle used by the character's jump: cross a number out,
+ *  jump again to restore it. Hint-locked cells and finished games are blocked. */
+export function toggleDelete(
+  state: GameState,
+  row: number,
+  col: number,
+): { state: GameState; result: "deleted" | "restored" | "blocked" } {
+  if (state.gameWon || state.gameRevealed || state.grid[row][col].hint) {
+    return { state, result: "blocked" }
+  }
+  const grid = cloneGrid(state.grid)
+  const cell = grid[row][col]
+  cell.mistake = false
+  cell.circle = false
+  const result = cell.deleted ? "restored" : "deleted"
+  cell.deleted = !cell.deleted
+  return { state: updateGameStatus({ ...state, grid }), result }
+}
+
 /** Reveal one correct move and lock that cell. `rand` injectable for tests.
  *  Returns the new state and whether a hint was actually applied. */
 export function applyHint(state: GameState, rand: Rand = Math.random): { state: GameState; applied: boolean } {

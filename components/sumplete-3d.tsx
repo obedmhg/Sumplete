@@ -1,15 +1,27 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertCircle, Lightbulb, RotateCcw, Eye, Share2, Volume2, VolumeX } from "lucide-react"
+import {
+  AlertCircle,
+  Lightbulb,
+  RotateCcw,
+  Eye,
+  Share2,
+  Volume2,
+  VolumeX,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+} from "lucide-react"
 import {
   generateGame,
-  cycleCell,
+  toggleDelete,
   applyHint,
   revealSolution,
   markMistakes,
@@ -17,12 +29,10 @@ import {
   type GameState,
 } from "@/lib/sumplete-engine"
 import { play, unlockAudio, isMuted, setMuted as setSoundMuted } from "@/lib/sound"
-import type { GameCanvasProps } from "@/components/board/GameCanvas"
-import { STYLE_LIST, getStyle, type BoardStyleId } from "@/components/board/styles"
+import type { GameSceneProps } from "@/components/board/GameScene"
 
-// The whole three.js scene is client-only (it touches `document` to build
-// textures), so load it without SSR.
-const GameCanvas = dynamic<GameCanvasProps>(() => import("@/components/board/GameCanvas"), {
+// The three.js scene is client-only (it builds canvas textures from `document`).
+const GameScene = dynamic<GameSceneProps>(() => import("@/components/board/GameScene"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
@@ -31,6 +41,9 @@ const GameCanvas = dynamic<GameCanvasProps>(() => import("@/components/board/Gam
   ),
 })
 
+const center = (size: number) => Math.floor((size - 1) / 2)
+const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v))
+
 export function Sumplete3D() {
   const [gridSize, setGridSize] = useState(3)
   const [allowNegative, setAllowNegative] = useState(false)
@@ -38,17 +51,23 @@ export function Sumplete3D() {
   const [showMistakes, setShowMistakes] = useState(false)
   const [muted, setMuted] = useState(false)
   const [winCount, setWinCount] = useState(0)
-  const [styleId, setStyleId] = useState<BoardStyleId>("neon")
+  const [charPos, setCharPos] = useState({ row: 1, col: 1 })
+  const [jumpKey, setJumpKey] = useState(0)
 
   const disabled = gameState.gameWon || gameState.gameRevealed
-  const style = getStyle(styleId)
 
-  // Skip the size-change reset on first mount and when the size change came from
-  // restoring a saved game (otherwise it would clobber the loaded puzzle).
+  // Refs let the global key handler read the latest state without re-binding.
+  const gameStateRef = useRef(gameState)
+  const charPosRef = useRef(charPos)
+  const sizeRef = useRef(gridSize)
+  gameStateRef.current = gameState
+  charPosRef.current = charPos
+  sizeRef.current = gridSize
+
   const firstSizeEffect = useRef(true)
   const skipReset = useRef(false)
 
-  // New puzzle whenever the grid size changes.
+  // New puzzle whenever the grid size changes (but not on mount/restore).
   useEffect(() => {
     if (firstSizeEffect.current) {
       firstSizeEffect.current = false
@@ -60,6 +79,7 @@ export function Sumplete3D() {
     }
     setGameState(generateGame(gridSize, allowNegative))
     setShowMistakes(false)
+    setCharPos({ row: center(gridSize), col: center(gridSize) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridSize])
 
@@ -69,8 +89,7 @@ export function Sumplete3D() {
     localStorage.setItem("sumplete-game", JSON.stringify(gameState))
     localStorage.setItem("sumplete-size", gridSize.toString())
     localStorage.setItem("sumplete-negative", allowNegative.toString())
-    localStorage.setItem("sumplete-style", styleId)
-  }, [gameState, gridSize, allowNegative, styleId])
+  }, [gameState, gridSize, allowNegative])
 
   // Restore on mount.
   useEffect(() => {
@@ -79,12 +98,11 @@ export function Sumplete3D() {
     const savedSize = localStorage.getItem("sumplete-size")
     const savedNegative = localStorage.getItem("sumplete-negative")
     const savedGame = localStorage.getItem("sumplete-game")
-    const savedStyle = localStorage.getItem("sumplete-style")
-    if (savedStyle) setStyleId(getStyle(savedStyle).id)
     if (savedSize) {
       const parsed = Number.parseInt(savedSize)
-      if (parsed !== gridSize) skipReset.current = true // don't let the size effect wipe the saved game
+      if (parsed !== gridSize) skipReset.current = true
       setGridSize(parsed)
+      setCharPos({ row: center(parsed), col: center(parsed) })
     }
     if (savedNegative) setAllowNegative(savedNegative === "true")
     if (savedGame) {
@@ -99,17 +117,32 @@ export function Sumplete3D() {
   function resetGame() {
     setGameState(generateGame(gridSize, allowNegative))
     setShowMistakes(false)
+    setCharPos({ row: center(gridSize), col: center(gridSize) })
   }
 
-  function handleCellClick(row: number, col: number) {
-    unlockAudio()
-    const prev = gameState
-    const { state, result } = cycleCell(prev, row, col)
-    if (result === "blocked") return
+  // --- Character controls (keyboard + on-screen) ---
 
+  const move = useCallback((dRow: number, dCol: number) => {
+    const size = sizeRef.current
+    const p = charPosRef.current
+    const row = clamp(p.row + dRow, size - 1)
+    const col = clamp(p.col + dCol, size - 1)
+    if (row === p.row && col === p.col) return
+    unlockAudio()
+    play("step")
+    setCharPos({ row, col })
+  }, [])
+
+  const jump = useCallback(() => {
+    const p = charPosRef.current
+    const prev = gameStateRef.current
+    unlockAudio()
+    setJumpKey((k) => k + 1)
+    play("jump")
+
+    const { state, result } = toggleDelete(prev, p.row, p.col)
+    if (result === "blocked") return
     if (result === "deleted") play("delete")
-    else if (result === "circle") play("circle")
-    else play("click")
 
     if (state.gameWon && !prev.gameWon) {
       setWinCount((c) => c + 1)
@@ -120,9 +153,44 @@ export function Sumplete3D() {
         state.colStatus.some((s, j) => s === "correct" && prev.colStatus[j] !== "correct")
       if (newlyCorrect) play("correct")
     }
-
     setGameState(state)
-  }
+  }, [])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const ae = document.activeElement as HTMLElement | null
+      const tag = ae?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA") return
+      if (document.querySelector('[role="listbox"]')) return // a Select is open
+      switch (e.key) {
+        case "ArrowUp":
+          e.preventDefault()
+          move(-1, 0)
+          break
+        case "ArrowDown":
+          e.preventDefault()
+          move(1, 0)
+          break
+        case "ArrowLeft":
+          e.preventDefault()
+          move(0, -1)
+          break
+        case "ArrowRight":
+          e.preventDefault()
+          move(0, 1)
+          break
+        case " ":
+          if (tag === "BUTTON") return // let Space activate a focused button
+          e.preventDefault()
+          jump()
+          break
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [move, jump])
+
+  // --- Helper actions ---
 
   function handleHint() {
     unlockAudio()
@@ -162,15 +230,8 @@ export function Sumplete3D() {
     }
   }
 
-  function changeStyle(id: BoardStyleId) {
-    if (id === styleId) return
-    setStyleId(id)
-    unlockAudio()
-    play("click")
-  }
-
   function shareGame() {
-    const inviteMessage = "Have you tried this logic puzzle game? - Sumplete 3D"
+    const inviteMessage = "Have you tried this logic puzzle platformer? - Sumplete Runner"
     if (navigator.share) {
       navigator.share({ text: inviteMessage }).catch((err) => console.error("Share failed:", err))
     } else {
@@ -185,18 +246,15 @@ export function Sumplete3D() {
     <Card className="w-full p-4 md:p-6 shadow-lg">
       <div className="flex flex-col items-center space-y-4 md:space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl md:text-3xl font-bold mb-2">Sumplete 3D</h1>
+          <h1 className="text-2xl md:text-3xl font-bold mb-2">Sumplete Runner</h1>
           <p className="text-sm text-muted-foreground">
-            Delete numbers so each row/column adds up to the glowing target. Click a tile: delete → keep-ring → clear.
+            Walk the hopper with the arrow keys and press <span className="font-semibold">Space</span> to jump:
+            jump on a number to cross it out, jump again to restore it. Clear each row/column down to its target sum.
           </p>
         </div>
 
-        <div
-          className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700"
-          style={{ background: style.background }}
-        >
-          {/* `key` on size remounts the canvas so the camera reframes for the new board. */}
-          <GameCanvas
+        <div className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700 bg-[#0a0a12]">
+          <GameScene
             key={gridSize}
             size={gridSize}
             grid={gameState.grid}
@@ -204,10 +262,10 @@ export function Sumplete3D() {
             colSums={gameState.colSums}
             rowStatus={gameState.rowStatus}
             colStatus={gameState.colStatus}
-            disabled={disabled}
+            charRow={charPos.row}
+            charCol={charPos.col}
+            jumpKey={jumpKey}
             winCount={winCount}
-            styleId={styleId}
-            onCellClick={handleCellClick}
           />
 
           {disabled && (
@@ -233,19 +291,27 @@ export function Sumplete3D() {
           </button>
         </div>
 
-        {/* Style switcher — available at all times, including the win screen. */}
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <span className="text-sm text-muted-foreground mr-1">Style:</span>
-          {STYLE_LIST.map((s) => (
-            <Button
-              key={s.id}
-              variant={s.id === styleId ? "default" : "outline"}
-              size="sm"
-              onClick={() => changeStyle(s.id)}
-            >
-              {s.label}
+        {/* On-screen controls (touch / no keyboard). */}
+        <div className="flex items-center justify-center gap-6">
+          <div className="grid grid-cols-3 gap-1">
+            <span />
+            <Button variant="outline" size="icon" aria-label="Up" onClick={() => move(-1, 0)}>
+              <ArrowUp className="h-4 w-4" />
             </Button>
-          ))}
+            <span />
+            <Button variant="outline" size="icon" aria-label="Left" onClick={() => move(0, -1)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" aria-label="Down" onClick={() => move(1, 0)}>
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" aria-label="Right" onClick={() => move(0, 1)}>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button className="h-16 px-6 text-base" onClick={jump} disabled={disabled}>
+            Jump
+          </Button>
         </div>
 
         {!disabled && (

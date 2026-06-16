@@ -3,22 +3,13 @@
 import { useMemo, useRef } from "react"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
+import { COLORS } from "./constants"
 
 const COUNT = 160
 const LIFE = 1.6
 
 // One-shot particle explosion. Bump `fire` (e.g. a win counter) to replay it.
-export function Burst({
-  fire,
-  color,
-  glow,
-  origin = [0, 0.5, 0],
-}: {
-  fire: number
-  color: string
-  glow: boolean
-  origin?: [number, number, number]
-}) {
+export function Burst({ fire, origin = [0, 0.5, 0] }: { fire: number; origin?: [number, number, number] }) {
   const points = useRef<THREE.Points>(null)
   const age = useRef(Infinity)
   const lastFire = useRef(fire)
@@ -66,7 +57,7 @@ export function Burst({
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial color={color} size={0.18} transparent toneMapped={!glow} depthWrite={false} />
+      <pointsMaterial color={COLORS.green} size={0.18} transparent toneMapped={false} depthWrite={false} />
     </points>
   )
 }

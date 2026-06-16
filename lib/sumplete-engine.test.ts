@@ -3,6 +3,7 @@ import {
   generateGame,
   updateGameStatus,
   cycleCell,
+  toggleDelete,
   applyHint,
   revealSolution,
   markMistakes,
@@ -110,6 +111,37 @@ describe("cycleCell", () => {
     const s = fresh()
     cycleCell(s, 0, 0)
     expect(s.grid[0][0].deleted).toBe(false)
+  })
+})
+
+describe("toggleDelete (jump mechanic)", () => {
+  const fresh = () => makeState([[1, 2], [3, 4]], [[true, false], [false, true]])
+
+  it("deletes on first jump, restores on second", () => {
+    let s = fresh()
+    let r = toggleDelete(s, 0, 1)
+    expect(r.result).toBe("deleted")
+    expect(r.state.grid[0][1].deleted).toBe(true)
+
+    r = toggleDelete(r.state, 0, 1)
+    expect(r.result).toBe("restored")
+    expect(r.state.grid[0][1].deleted).toBe(false)
+  })
+
+  it("blocks hint cells and finished games", () => {
+    const s = fresh()
+    s.grid[0][0].hint = true
+    expect(toggleDelete(s, 0, 0).result).toBe("blocked")
+    const won = fresh()
+    won.gameRevealed = true
+    expect(toggleDelete(won, 1, 1).result).toBe("blocked")
+  })
+
+  it("wins when the right cells are crossed out", () => {
+    let s = fresh()
+    s = toggleDelete(s, 0, 1).state
+    s = toggleDelete(s, 1, 0).state
+    expect(s.gameWon).toBe(true)
   })
 })
 

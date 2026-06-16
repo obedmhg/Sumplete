@@ -2,7 +2,7 @@
 // oscillators. A single lazily-created AudioContext is shared, and unlocked on
 // the first user gesture to satisfy browser autoplay policy.
 
-export type SoundName = "click" | "delete" | "circle" | "correct" | "error" | "win"
+export type SoundName = "click" | "delete" | "circle" | "correct" | "error" | "win" | "jump" | "step"
 
 const MUTED_KEY = "sumplete-muted"
 
@@ -73,6 +73,12 @@ export function play(name: SoundName): void {
   switch (name) {
     case "click":
       tone({ freq: 440, duration: 0.06, type: "triangle", gain: 0.12 })
+      break
+    case "step":
+      tone({ freq: 300, duration: 0.05, type: "square", gain: 0.06 })
+      break
+    case "jump":
+      tone({ freq: 320, duration: 0.16, type: "sine", gain: 0.14, slideTo: 720 })
       break
     case "delete":
       tone({ freq: 240, duration: 0.18, type: "sawtooth", gain: 0.16, slideTo: 90 })
