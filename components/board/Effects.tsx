@@ -1,12 +1,21 @@
 "use client"
 
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
+import type { BoardStyle } from "./styles"
 
-// Bloom is what turns the emissive tiles into a neon glow.
-export function Effects() {
+// Bloom turns emissive tiles into a neon glow. Styles that don't want it
+// (minimal, playful) render no composer at all.
+export function Effects({ style }: { style: BoardStyle }) {
+  if (!style.bloom.enabled) return null
   return (
     <EffectComposer>
-      <Bloom intensity={0.9} luminanceThreshold={0.25} luminanceSmoothing={0.4} mipmapBlur radius={0.7} />
+      <Bloom
+        intensity={style.bloom.intensity}
+        luminanceThreshold={style.bloom.threshold}
+        luminanceSmoothing={style.bloom.smoothing}
+        mipmapBlur
+        radius={style.bloom.radius}
+      />
     </EffectComposer>
   )
 }

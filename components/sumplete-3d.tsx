@@ -18,6 +18,7 @@ import {
 } from "@/lib/sumplete-engine"
 import { play, unlockAudio, isMuted, setMuted as setSoundMuted } from "@/lib/sound"
 import type { GameCanvasProps } from "@/components/board/GameCanvas"
+import { STYLE_LIST, getStyle, type BoardStyleId } from "@/components/board/styles"
 
 // The whole three.js scene is client-only (it touches `document` to build
 // textures), so load it without SSR.
@@ -37,8 +38,10 @@ export function Sumplete3D() {
   const [showMistakes, setShowMistakes] = useState(false)
   const [muted, setMuted] = useState(false)
   const [winCount, setWinCount] = useState(0)
+  const [styleId, setStyleId] = useState<BoardStyleId>("neon")
 
   const disabled = gameState.gameWon || gameState.gameRevealed
+  const style = getStyle(styleId)
 
   // Skip the size-change reset on first mount and when the size change came from
   // restoring a saved game (otherwise it would clobber the loaded puzzle).
@@ -66,7 +69,8 @@ export function Sumplete3D() {
     localStorage.setItem("sumplete-game", JSON.stringify(gameState))
     localStorage.setItem("sumplete-size", gridSize.toString())
     localStorage.setItem("sumplete-negative", allowNegative.toString())
-  }, [gameState, gridSize, allowNegative])
+    localStorage.setItem("sumplete-style", styleId)
+  }, [gameState, gridSize, allowNegative, styleId])
 
   // Restore on mount.
   useEffect(() => {
@@ -75,6 +79,8 @@ export function Sumplete3D() {
     const savedSize = localStorage.getItem("sumplete-size")
     const savedNegative = localStorage.getItem("sumplete-negative")
     const savedGame = localStorage.getItem("sumplete-game")
+    const savedStyle = localStorage.getItem("sumplete-style")
+    if (savedStyle) setStyleId(getStyle(savedStyle).id)
     if (savedSize) {
       const parsed = Number.parseInt(savedSize)
       if (parsed !== gridSize) skipReset.current = true // don't let the size effect wipe the saved game
@@ -156,6 +162,13 @@ export function Sumplete3D() {
     }
   }
 
+  function changeStyle(id: BoardStyleId) {
+    if (id === styleId) return
+    setStyleId(id)
+    unlockAudio()
+    play("click")
+  }
+
   function shareGame() {
     const inviteMessage = "Have you tried this logic puzzle game? - Sumplete 3D"
     if (navigator.share) {
@@ -178,7 +191,10 @@ export function Sumplete3D() {
           </p>
         </div>
 
-        <div className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700 bg-[#0a0a12]">
+        <div
+          className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700"
+          style={{ background: style.background }}
+        >
           {/* `key` on size remounts the canvas so the camera reframes for the new board. */}
           <GameCanvas
             key={gridSize}
@@ -190,6 +206,7 @@ export function Sumplete3D() {
             colStatus={gameState.colStatus}
             disabled={disabled}
             winCount={winCount}
+            styleId={styleId}
             onCellClick={handleCellClick}
           />
 
@@ -214,6 +231,21 @@ export function Sumplete3D() {
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
+        </div>
+
+        {/* Style switcher — available at all times, including the win screen. */}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="text-sm text-muted-foreground mr-1">Style:</span>
+          {STYLE_LIST.map((s) => (
+            <Button
+              key={s.id}
+              variant={s.id === styleId ? "default" : "outline"}
+              size="sm"
+              onClick={() => changeStyle(s.id)}
+            >
+              {s.label}
+            </Button>
+          ))}
         </div>
 
         {!disabled && (

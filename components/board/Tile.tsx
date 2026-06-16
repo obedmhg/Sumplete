@@ -5,28 +5,24 @@ import { useFrame } from "@react-three/fiber"
 import { RoundedBox } from "@react-three/drei"
 import * as THREE from "three"
 import type { CellState } from "@/lib/sumplete-engine"
-import { COLORS, DEPTH, TILE } from "./constants"
+import { TILE } from "./constants"
 import { makeGlyphTexture, makeXTexture } from "./textures"
+import { type BoardStyle, color, resolveTile } from "./styles"
 
 const PUFF_COUNT = 12
 const PUFF_LIFE = 0.5
-
-type Target = { y: number; color: THREE.Color; intensity: number }
-
-const C_CYAN = new THREE.Color(COLORS.cyan)
-const C_GREEN = new THREE.Color(COLORS.green)
-const C_RED = new THREE.Color(COLORS.red)
-const C_BLUE = new THREE.Color(COLORS.blue)
 
 export function Tile({
   cell,
   position,
   disabled,
+  style,
   onClick,
 }: {
   cell: CellState
   position: [number, number, number]
   disabled: boolean
+  style: BoardStyle
   onClick: () => void
 }) {
   const group = useRef<THREE.Group>(null)
@@ -34,11 +30,16 @@ export function Tile({
   const puff = useRef<THREE.Points>(null)
   const puffAge = useRef(Infinity)
   const prevDeleted = useRef(cell.deleted)
-  const current = useRef(new THREE.Color(COLORS.cyan))
+  const vel = useRef(0)
+  const curSurface = useRef(color(style.surface.normal).clone())
+  const curEmissive = useRef(color(style.colors.normal).clone())
   const [hovered, setHovered] = useState(false)
 
-  const glyph = useMemo(() => makeGlyphTexture(String(cell.value), COLORS.cyan), [cell.value])
-  const xMark = useMemo(() => makeXTexture(COLORS.red), [])
+  const glyph = useMemo(() => makeGlyphTexture(String(cell.value), style.colors.digit), [cell.value, style.colors.digit])
+  const xMark = useMemo(() => makeXTexture(style.colors.x), [style.colors.x])
+
+  const depth = style.tile.depth
+  const topY = depth / 2
 
   const puffPositions = useMemo(() => new Float32Array(PUFF_COUNT * 3), [])
   const puffVel = useMemo(() => {
@@ -60,33 +61,25 @@ export function Tile({
     const t = state.clock.elapsedTime
     const d = Math.min(delta, 0.05)
 
-    // Resolve the target pose/glow from cell state.
-    const target: Target = { y: 0, color: C_CYAN, intensity: 0.55 }
-    if (cell.deleted) {
-      target.y = -0.34
-      target.color = C_RED
-      target.intensity = 0.22
-    } else if (cell.circle) {
-      target.y = 0.3
-      target.color = C_GREEN
-      target.intensity = 1.15
-    } else if (hovered && !disabled) {
-      target.intensity = 1.0
-    }
-    if (cell.mistake) {
-      target.color = C_RED
-      target.intensity = 0.6 + (Math.sin(t * 7) * 0.5 + 0.5) * 1.3
-    } else if (cell.hint) {
-      target.color = C_BLUE
-      target.intensity = 0.6 + (Math.sin(t * 5) * 0.5 + 0.5) * 1.1
+    const target = resolveTile(style, cell, hovered && !disabled, t)
+
+    // Vertical motion: a springy overshoot for "playful", a smooth lerp otherwise.
+    if (style.tile.bounce) {
+      const force = (target.y - g.position.y) * 220 - vel.current * 16
+      vel.current += force * d
+      g.position.y += vel.current * d
+    } else {
+      g.position.y = THREE.MathUtils.lerp(g.position.y, target.y, d * style.tile.stiffness)
     }
 
-    g.position.y = THREE.MathUtils.lerp(g.position.y, target.y, d * 10)
-    mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, target.intensity, d * 10)
-    current.current.lerp(target.color, d * 10)
-    mat.emissive.copy(current.current)
+    const k = d * style.tile.stiffness
+    curSurface.current.lerp(color(target.surface), k)
+    curEmissive.current.lerp(color(target.emissive), k)
+    mat.color.copy(curSurface.current)
+    mat.emissive.copy(curEmissive.current)
+    mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, target.intensity, k)
 
-    // Trigger a particle puff the moment the tile becomes deleted.
+    // Particle puff the moment the tile becomes deleted.
     if (cell.deleted && !prevDeleted.current) {
       puffAge.current = 0
       puffPositions.fill(0)
@@ -114,8 +107,8 @@ export function Tile({
   return (
     <group ref={group} position={position}>
       <RoundedBox
-        args={[TILE, DEPTH, TILE]}
-        radius={0.1}
+        args={[TILE, depth, TILE]}
+        radius={style.tile.radius}
         smoothness={3}
         onClick={(e) => {
           e.stopPropagation()
@@ -135,42 +128,42 @@ export function Tile({
       >
         <meshStandardMaterial
           ref={material}
-          color={COLORS.base}
-          emissive={COLORS.cyan}
-          emissiveIntensity={0.55}
-          metalness={0.3}
-          roughness={0.35}
+          color={style.surface.normal}
+          emissive={style.colors.normal}
+          emissiveIntensity={style.tile.baseIntensity}
+          metalness={style.tile.metalness}
+          roughness={style.tile.roughness}
         />
       </RoundedBox>
 
       {/* Number on the top face. */}
-      <mesh position={[0, DEPTH / 2 + 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, topY + 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[TILE * 0.85, TILE * 0.85]} />
-        <meshBasicMaterial map={glyph} transparent toneMapped={false} opacity={cell.deleted ? 0.3 : 1} />
+        <meshBasicMaterial map={glyph} transparent toneMapped={!style.glow} opacity={cell.deleted ? 0.35 : 1} />
       </mesh>
 
       {/* Red X overlay when deleted. */}
       {cell.deleted && (
-        <mesh position={[0, DEPTH / 2 + 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, topY + 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[TILE * 0.95, TILE * 0.95]} />
-          <meshBasicMaterial map={xMark} transparent toneMapped={false} />
+          <meshBasicMaterial map={xMark} transparent toneMapped={!style.glow} />
         </mesh>
       )}
 
-      {/* Green keep-ring when circled. */}
+      {/* Keep-ring when circled. */}
       {cell.circle && (
-        <mesh position={[0, DEPTH / 2 + 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, topY + 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <torusGeometry args={[TILE * 0.42, 0.05, 12, 40]} />
-          <meshBasicMaterial color={COLORS.green} toneMapped={false} />
+          <meshBasicMaterial color={style.colors.ring} toneMapped={!style.glow} />
         </mesh>
       )}
 
       {/* One-shot deletion particle puff. */}
-      <points ref={puff} visible={false} position={[0, DEPTH / 2, 0]}>
+      <points ref={puff} visible={false} position={[0, topY, 0]}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" args={[puffPositions, 3]} />
         </bufferGeometry>
-        <pointsMaterial color={COLORS.red} size={0.12} transparent toneMapped={false} depthWrite={false} />
+        <pointsMaterial color={style.colors.deleted} size={0.12} transparent toneMapped={!style.glow} depthWrite={false} />
       </points>
     </group>
   )
