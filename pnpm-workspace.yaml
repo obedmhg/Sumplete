@@ -1,0 +1,4 @@
+allowBuilds:
+  # Allow sharp's native build. Leaving it "ignored" makes pnpm 11's
+  # deps-status pre-check (run before `pnpm build` / `pnpm dev`) exit non-zero.
+  sharp: true
