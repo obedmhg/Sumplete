@@ -20,3 +20,16 @@ export const COLORS = {
 export function coord(k: number, n: number): number {
   return (k - (n - 1) / 2) * PITCH
 }
+
+export const CHAR_SPEED = 3.4 // world units per second
+
+// Continuous character state, mutated in the render loop and read by tiles +
+// the jump handler. `row`/`col` is the tile under the character, or -1 when it
+// has wandered off the board.
+export type CharState = {
+  x: number
+  z: number
+  row: number
+  col: number
+  valid: boolean
+}

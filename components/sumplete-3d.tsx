@@ -30,6 +30,7 @@ import {
 } from "@/lib/sumplete-engine"
 import { play, unlockAudio, isMuted, setMuted as setSoundMuted } from "@/lib/sound"
 import type { GameSceneProps } from "@/components/board/GameScene"
+import type { CharState } from "@/components/board/constants"
 
 // The three.js scene is client-only (it builds canvas textures from `document`).
 const GameScene = dynamic<GameSceneProps>(() => import("@/components/board/GameScene"), {
@@ -42,7 +43,6 @@ const GameScene = dynamic<GameSceneProps>(() => import("@/components/board/GameS
 })
 
 const center = (size: number) => Math.floor((size - 1) / 2)
-const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v))
 
 export function Sumplete3D() {
   const [gridSize, setGridSize] = useState(3)
@@ -51,21 +51,25 @@ export function Sumplete3D() {
   const [showMistakes, setShowMistakes] = useState(false)
   const [muted, setMuted] = useState(false)
   const [winCount, setWinCount] = useState(0)
-  const [charPos, setCharPos] = useState({ row: 1, col: 1 })
   const [jumpKey, setJumpKey] = useState(0)
 
   const disabled = gameState.gameWon || gameState.gameRevealed
 
-  // Refs let the global key handler read the latest state without re-binding.
+  // Continuous character position + currently held movement keys live in refs,
+  // so walking never triggers a React re-render. The board is centered on the
+  // origin, so the character starts at (0,0) on the middle tile.
+  const charRef = useRef<CharState>({ x: 0, z: 0, row: center(3), col: center(3), valid: true })
+  const heldRef = useRef<Set<string>>(new Set())
   const gameStateRef = useRef(gameState)
-  const charPosRef = useRef(charPos)
-  const sizeRef = useRef(gridSize)
   gameStateRef.current = gameState
-  charPosRef.current = charPos
-  sizeRef.current = gridSize
 
   const firstSizeEffect = useRef(true)
   const skipReset = useRef(false)
+
+  const recenterChar = useCallback((size: number) => {
+    charRef.current = { x: 0, z: 0, row: center(size), col: center(size), valid: true }
+    heldRef.current.clear()
+  }, [])
 
   // New puzzle whenever the grid size changes (but not on mount/restore).
   useEffect(() => {
@@ -79,7 +83,7 @@ export function Sumplete3D() {
     }
     setGameState(generateGame(gridSize, allowNegative))
     setShowMistakes(false)
-    setCharPos({ row: center(gridSize), col: center(gridSize) })
+    recenterChar(gridSize)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridSize])
 
@@ -102,7 +106,7 @@ export function Sumplete3D() {
       const parsed = Number.parseInt(savedSize)
       if (parsed !== gridSize) skipReset.current = true
       setGridSize(parsed)
-      setCharPos({ row: center(parsed), col: center(parsed) })
+      recenterChar(parsed)
     }
     if (savedNegative) setAllowNegative(savedNegative === "true")
     if (savedGame) {
@@ -112,40 +116,31 @@ export function Sumplete3D() {
         setGameState(generateGame(gridSize, allowNegative))
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function resetGame() {
     setGameState(generateGame(gridSize, allowNegative))
     setShowMistakes(false)
-    setCharPos({ row: center(gridSize), col: center(gridSize) })
+    recenterChar(gridSize)
   }
 
-  // --- Character controls (keyboard + on-screen) ---
-
-  const move = useCallback((dRow: number, dCol: number) => {
-    const size = sizeRef.current
-    const p = charPosRef.current
-    const row = clamp(p.row + dRow, size - 1)
-    const col = clamp(p.col + dCol, size - 1)
-    if (row === p.row && col === p.col) return
-    unlockAudio()
-    play("step")
-    setCharPos({ row, col })
-  }, [])
+  // --- Character controls ---
 
   const jump = useCallback(() => {
-    const p = charPosRef.current
+    const c = charRef.current
     const prev = gameStateRef.current
     unlockAudio()
     setJumpKey((k) => k + 1)
     play("jump")
 
-    const { state, result } = toggleDelete(prev, p.row, p.col)
+    if (!c.valid) return // standing off the board — just hop
+    const { state, result } = toggleDelete(prev, c.row, c.col)
     if (result === "blocked") return
     if (result === "deleted") play("delete")
 
     if (state.gameWon && !prev.gameWon) {
-      setWinCount((c) => c + 1)
+      setWinCount((k) => k + 1)
       play("win")
     } else {
       const newlyCorrect =
@@ -156,39 +151,48 @@ export function Sumplete3D() {
     setGameState(state)
   }, [])
 
+  const press = useCallback((key: string) => {
+    unlockAudio()
+    heldRef.current.add(key)
+  }, [])
+  const release = useCallback((key: string) => {
+    heldRef.current.delete(key)
+  }, [])
+
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    const MOVE_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
+
+    function onKeyDown(e: KeyboardEvent) {
       const ae = document.activeElement as HTMLElement | null
       const tag = ae?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA") return
       if (document.querySelector('[role="listbox"]')) return // a Select is open
-      switch (e.key) {
-        case "ArrowUp":
-          e.preventDefault()
-          move(-1, 0)
-          break
-        case "ArrowDown":
-          e.preventDefault()
-          move(1, 0)
-          break
-        case "ArrowLeft":
-          e.preventDefault()
-          move(0, -1)
-          break
-        case "ArrowRight":
-          e.preventDefault()
-          move(0, 1)
-          break
-        case " ":
-          if (tag === "BUTTON") return // let Space activate a focused button
-          e.preventDefault()
-          jump()
-          break
+
+      if (MOVE_KEYS.has(e.key)) {
+        e.preventDefault()
+        heldRef.current.add(e.key)
+      } else if (e.key === " ") {
+        if (tag === "BUTTON") return // let Space activate a focused button
+        e.preventDefault()
+        if (!e.repeat) jump()
       }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [move, jump])
+    function onKeyUp(e: KeyboardEvent) {
+      if (MOVE_KEYS.has(e.key)) heldRef.current.delete(e.key)
+    }
+    function clearHeld() {
+      heldRef.current.clear()
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    window.addEventListener("blur", clearHeld)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("blur", clearHeld)
+    }
+  }, [jump])
 
   // --- Helper actions ---
 
@@ -242,14 +246,26 @@ export function Sumplete3D() {
     }
   }
 
+  // Press-and-hold for the on-screen pad.
+  const hold = (key: string) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      e.preventDefault()
+      press(key)
+    },
+    onPointerUp: () => release(key),
+    onPointerLeave: () => release(key),
+    onPointerCancel: () => release(key),
+  })
+
   return (
     <Card className="w-full p-4 md:p-6 shadow-lg">
       <div className="flex flex-col items-center space-y-4 md:space-y-6">
         <div className="text-center">
           <h1 className="text-2xl md:text-3xl font-bold mb-2">Sumplete Runner</h1>
           <p className="text-sm text-muted-foreground">
-            Walk the hopper with the arrow keys and press <span className="font-semibold">Space</span> to jump:
-            jump on a number to cross it out, jump again to restore it. Clear each row/column down to its target sum.
+            Roam the hopper with the arrow keys (walk anywhere, even off the board) and press{" "}
+            <span className="font-semibold">Space</span> to jump: jump on a number to cross it out, jump again to
+            restore it. Clear each row/column down to its target sum.
           </p>
         </div>
 
@@ -262,8 +278,9 @@ export function Sumplete3D() {
             colSums={gameState.colSums}
             rowStatus={gameState.rowStatus}
             colStatus={gameState.colStatus}
-            charRow={charPos.row}
-            charCol={charPos.col}
+            charRef={charRef}
+            heldRef={heldRef}
+            disabled={disabled}
             jumpKey={jumpKey}
             winCount={winCount}
           />
@@ -291,21 +308,21 @@ export function Sumplete3D() {
           </button>
         </div>
 
-        {/* On-screen controls (touch / no keyboard). */}
-        <div className="flex items-center justify-center gap-6">
+        {/* On-screen controls (touch / no keyboard). Hold to walk. */}
+        <div className="flex items-center justify-center gap-6 select-none">
           <div className="grid grid-cols-3 gap-1">
             <span />
-            <Button variant="outline" size="icon" aria-label="Up" onClick={() => move(-1, 0)}>
+            <Button variant="outline" size="icon" aria-label="Up" {...hold("ArrowUp")}>
               <ArrowUp className="h-4 w-4" />
             </Button>
             <span />
-            <Button variant="outline" size="icon" aria-label="Left" onClick={() => move(0, -1)}>
+            <Button variant="outline" size="icon" aria-label="Left" {...hold("ArrowLeft")}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Down" onClick={() => move(1, 0)}>
+            <Button variant="outline" size="icon" aria-label="Down" {...hold("ArrowDown")}>
               <ArrowDown className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Right" onClick={() => move(0, 1)}>
+            <Button variant="outline" size="icon" aria-label="Right" {...hold("ArrowRight")}>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>

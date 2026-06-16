@@ -1,9 +1,10 @@
 "use client"
 
+import type { MutableRefObject } from "react"
 import { Canvas } from "@react-three/fiber"
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei"
 import type { CellState, LineStatus } from "@/lib/sumplete-engine"
-import { COLORS, PITCH, coord } from "./constants"
+import { COLORS, PITCH, coord, type CharState } from "./constants"
 import { NumberTile } from "./NumberTile"
 import { SumLabel } from "./SumLabel"
 import { Character } from "./Character"
@@ -17,14 +18,15 @@ export type GameSceneProps = {
   colSums: number[]
   rowStatus: LineStatus[]
   colStatus: LineStatus[]
-  charRow: number
-  charCol: number
+  charRef: MutableRefObject<CharState>
+  heldRef: MutableRefObject<Set<string>>
+  disabled: boolean
   jumpKey: number
   winCount: number
 }
 
 export default function GameScene(props: GameSceneProps) {
-  const { size, grid, rowSums, colSums, rowStatus, colStatus, charRow, charCol, jumpKey, winCount } = props
+  const { size, grid, rowSums, colSums, rowStatus, colStatus, charRef, heldRef, disabled, jumpKey, winCount } = props
 
   const span = (size + 1) * PITCH
   const camera: [number, number, number] = [0, span * 0.95, span * 0.95]
@@ -33,7 +35,7 @@ export default function GameScene(props: GameSceneProps) {
   return (
     <Canvas dpr={[1, 2]} gl={{ antialias: true }}>
       <color attach="background" args={[COLORS.bg]} />
-      <fog attach="fog" args={[COLORS.bg, span * 1.2, span * 2.8]} />
+      <fog attach="fog" args={[COLORS.bg, span * 1.4, span * 3.2]} />
 
       <PerspectiveCamera makeDefault position={camera} fov={45} />
       <OrbitControls
@@ -43,7 +45,7 @@ export default function GameScene(props: GameSceneProps) {
         minPolarAngle={0.2}
         maxPolarAngle={1.25}
         minDistance={span * 0.55}
-        maxDistance={span * 1.8}
+        maxDistance={span * 2}
       />
 
       <ambientLight intensity={0.5} />
@@ -57,7 +59,9 @@ export default function GameScene(props: GameSceneProps) {
             key={`${i}-${j}`}
             cell={cell}
             position={[coord(j, size), 0, coord(i, size)]}
-            occupied={i === charRow && j === charCol}
+            row={i}
+            col={j}
+            charRef={charRef}
           />
         )),
       )}
@@ -69,7 +73,7 @@ export default function GameScene(props: GameSceneProps) {
         <SumLabel key={`c-${j}`} value={value} status={colStatus[j]} position={[coord(j, size), 0, labelEnd]} />
       ))}
 
-      <Character target={[coord(charCol, size), coord(charRow, size)]} jumpKey={jumpKey} />
+      <Character charRef={charRef} heldRef={heldRef} size={size} disabled={disabled} jumpKey={jumpKey} />
 
       <Burst fire={winCount} origin={[0, 0.5, 0]} />
       <Effects />

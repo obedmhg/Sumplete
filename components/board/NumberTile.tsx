@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, type MutableRefObject } from "react"
 import { useFrame } from "@react-three/fiber"
 import { RoundedBox } from "@react-three/drei"
 import * as THREE from "three"
 import type { CellState } from "@/lib/sumplete-engine"
-import { COLORS, DEPTH, TILE } from "./constants"
+import { COLORS, DEPTH, TILE, type CharState } from "./constants"
 import { makeGlyphTexture, makeXTexture } from "./textures"
 
 const C_CYAN = new THREE.Color(COLORS.cyan)
@@ -19,11 +19,15 @@ const C_AMBER = new THREE.Color(COLORS.amber)
 export function NumberTile({
   cell,
   position,
-  occupied,
+  row,
+  col,
+  charRef,
 }: {
   cell: CellState
   position: [number, number, number]
-  occupied: boolean
+  row: number
+  col: number
+  charRef: MutableRefObject<CharState>
 }) {
   const material = useRef<THREE.MeshStandardMaterial>(null)
   const current = useRef(new THREE.Color(COLORS.cyan))
@@ -36,6 +40,9 @@ export function NumberTile({
     if (!mat) return
     const t = state.clock.elapsedTime
     const d = Math.min(delta, 0.05) * 10
+
+    const c = charRef.current
+    const occupied = c.valid && c.row === row && c.col === col
 
     let color = C_CYAN
     let intensity = 0.5
