@@ -3,20 +3,27 @@
 import { useRef, type MutableRefObject } from "react"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
-import { CHAR_SPEED, COLORS, DEPTH, PITCH, type CharState } from "./constants"
+import { CHAR_SPEED, DEPTH, PITCH, type CharState } from "./constants"
 import { play } from "@/lib/sound"
 
-const RADIUS = 0.18
-const LENGTH = 0.34
-const STAND_Y = DEPTH / 2 + LENGTH / 2 + RADIUS // bottom of capsule rests on tile top
+// Limb segment lengths (world units; a tile is 1 unit wide).
+const LEG_H = 0.22
+const TORSO_H = 0.3
+const STAND_Y = DEPTH / 2 // root sits at the character's feet, on the tile top
 const JUMP_HEIGHT = 0.6
 const JUMP_DUR = 0.42
 const STEP_INTERVAL = 0.3
 
-// Free-roaming hopper. Position is integrated from held arrow keys every frame
-// (no React state, no per-frame re-render) and written into `charRef` so tiles
-// and the jump handler can read where it is. It can walk anywhere, including a
-// couple of tiles past the board edge.
+const CAP = "#e63946" // cap + shirt red
+const OVERALL = "#2a4cd6" // blue legs / straps
+const SKIN = "#f4c79a"
+const SHOE = "#4a2c12"
+const DARK = "#1a1014"
+
+// A chunky, boxy Mario-ish hopper built from cubes. Position is integrated from
+// held arrow keys each frame (refs, no React re-render). Limbs animate per
+// state: a swing cycle while walking, a tucked-legs/arms-up pose while
+// airborne, and a gentle idle otherwise.
 export function Character({
   charRef,
   heldRef,
@@ -30,20 +37,26 @@ export function Character({
   disabled: boolean
   jumpKey: number
 }) {
-  const group = useRef<THREE.Group>(null)
+  const root = useRef<THREE.Group>(null)
+  const legL = useRef<THREE.Group>(null)
+  const legR = useRef<THREE.Group>(null)
+  const armL = useRef<THREE.Group>(null)
+  const armR = useRef<THREE.Group>(null)
+
   const lastJump = useRef(jumpKey)
   const jumpStart = useRef(-Infinity)
   const facing = useRef(0)
   const stepAcc = useRef(0)
+  const walkPhase = useRef(0)
 
   useFrame((state, delta) => {
-    const g = group.current
-    if (!g) return
+    const g = root.current
+    if (!g || !legL.current || !legR.current || !armL.current || !armR.current) return
     const d = Math.min(delta, 0.05)
     const t = state.clock.elapsedTime
     const c = charRef.current
 
-    // Velocity from held keys (diagonals normalized).
+    // --- Movement from held keys (diagonals normalized) ---
     let vx = 0
     let vz = 0
     if (!disabled) {
@@ -60,60 +73,166 @@ export function Character({
     }
 
     const half = (size - 1) / 2
-    const bound = (half + 2) * PITCH // roam up to two tiles beyond the edge
+    const bound = (half + 2) * PITCH
     c.x = THREE.MathUtils.clamp(c.x + vx * CHAR_SPEED * d, -bound, bound)
     c.z = THREE.MathUtils.clamp(c.z + vz * CHAR_SPEED * d, -bound, bound)
 
-    // Which tile (if any) is under the character.
     const col = Math.round(c.x / PITCH + half)
     const row = Math.round(c.z / PITCH + half)
     c.valid = row >= 0 && row < size && col >= 0 && col < size
     c.row = c.valid ? row : -1
     c.col = c.valid ? col : -1
 
-    // Face the travel direction; footstep cadence while moving.
-    if (len > 0) {
-      facing.current = Math.atan2(vx, vz)
-      stepAcc.current += d
-      if (stepAcc.current >= STEP_INTERVAL) {
-        stepAcc.current = 0
-        play("step")
-      }
-    }
-    g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, facing.current, d * 12)
-
-    // Jump arc.
+    // --- Jump arc ---
     if (jumpKey !== lastJump.current) {
       lastJump.current = jumpKey
       jumpStart.current = t
     }
     const p = (t - jumpStart.current) / JUMP_DUR
-    let y = STAND_Y
-    let squash = 1
-    if (p >= 0 && p <= 1) {
-      y += Math.sin(p * Math.PI) * JUMP_HEIGHT
-      squash = 1 + Math.sin(p * Math.PI) * 0.12
+    const airborne = p >= 0 && p <= 1
+    const arc = airborne ? Math.sin(p * Math.PI) : 0
+
+    // --- Facing + footsteps ---
+    const moving = len > 0
+    if (moving) {
+      facing.current = Math.atan2(vx, vz)
+      if (!airborne) {
+        stepAcc.current += d
+        if (stepAcc.current >= STEP_INTERVAL) {
+          stepAcc.current = 0
+          play("step")
+        }
+      }
     }
-    g.position.set(c.x, y, c.z)
+    g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, facing.current, d * 12)
+
+    // --- Limb pose targets (walk cycle / jump / idle) ---
+    let legLX = 0
+    let legRX = 0
+    let armLX = 0
+    let armRX = 0
+    let armLZ = 0.08
+    let armRZ = -0.08
+    if (airborne) {
+      legLX = -0.5
+      legRX = -0.5
+      armLZ = 2.4 // arms up in a V
+      armRZ = -2.4
+    } else if (moving && !disabled) {
+      walkPhase.current += d * 9
+      const swing = Math.sin(walkPhase.current)
+      legLX = swing * 0.6
+      legRX = -swing * 0.6
+      armLX = -swing * 0.5
+      armRX = swing * 0.5
+      armLZ = 0
+      armRZ = 0
+    }
+
+    const k = d * 16
+    legL.current.rotation.x = THREE.MathUtils.lerp(legL.current.rotation.x, legLX, k)
+    legR.current.rotation.x = THREE.MathUtils.lerp(legR.current.rotation.x, legRX, k)
+    armL.current.rotation.x = THREE.MathUtils.lerp(armL.current.rotation.x, armLX, k)
+    armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, armRX, k)
+    armL.current.rotation.z = THREE.MathUtils.lerp(armL.current.rotation.z, armLZ, k)
+    armR.current.rotation.z = THREE.MathUtils.lerp(armR.current.rotation.z, armRZ, k)
+
+    // --- Body transform: jump height, walk bob, jump squash/stretch ---
+    const walkBob = moving && !airborne ? Math.abs(Math.sin(walkPhase.current)) * 0.03 : 0
+    g.position.set(c.x, STAND_Y + arc * JUMP_HEIGHT + walkBob, c.z)
+    const squash = 1 + arc * 0.12
     g.scale.set(1 / squash, squash, 1 / squash)
   })
 
   return (
-    <group ref={group} position={[charRef.current.x, STAND_Y, charRef.current.z]}>
-      <mesh>
-        <capsuleGeometry args={[RADIUS, LENGTH, 6, 16]} />
-        <meshStandardMaterial color="#2a1a05" emissive={COLORS.amber} emissiveIntensity={1.1} roughness={0.4} />
+    <group ref={root} position={[charRef.current.x, STAND_Y, charRef.current.z]}>
+      {/* Legs (pivot at the hip, box hangs below). */}
+      <group ref={legL} position={[-0.08, LEG_H, 0]}>
+        <mesh position={[0, -LEG_H / 2, 0]}>
+          <boxGeometry args={[0.12, LEG_H, 0.14]} />
+          <meshStandardMaterial color={OVERALL} emissive={OVERALL} emissiveIntensity={0.25} roughness={0.6} />
+        </mesh>
+        <mesh position={[0, -LEG_H + 0.02, 0.02]}>
+          <boxGeometry args={[0.14, 0.07, 0.2]} />
+          <meshStandardMaterial color={SHOE} roughness={0.7} />
+        </mesh>
+      </group>
+      <group ref={legR} position={[0.08, LEG_H, 0]}>
+        <mesh position={[0, -LEG_H / 2, 0]}>
+          <boxGeometry args={[0.12, LEG_H, 0.14]} />
+          <meshStandardMaterial color={OVERALL} emissive={OVERALL} emissiveIntensity={0.25} roughness={0.6} />
+        </mesh>
+        <mesh position={[0, -LEG_H + 0.02, 0.02]}>
+          <boxGeometry args={[0.14, 0.07, 0.2]} />
+          <meshStandardMaterial color={SHOE} roughness={0.7} />
+        </mesh>
+      </group>
+
+      {/* Torso. */}
+      <mesh position={[0, LEG_H + TORSO_H / 2, 0]}>
+        <boxGeometry args={[0.34, TORSO_H, 0.22]} />
+        <meshStandardMaterial color={CAP} emissive={CAP} emissiveIntensity={0.3} roughness={0.5} />
       </mesh>
-      {/* Eyes on the front face (+Z). */}
-      <mesh position={[0.07, 0.12, 0.17]}>
-        <sphereGeometry args={[0.035, 12, 12]} />
-        <meshBasicMaterial color="#0a0a12" toneMapped={false} />
+      {/* Overall bib on the chest. */}
+      <mesh position={[0, LEG_H + TORSO_H / 2 - 0.04, 0.115]}>
+        <boxGeometry args={[0.2, 0.18, 0.02]} />
+        <meshStandardMaterial color={OVERALL} emissive={OVERALL} emissiveIntensity={0.25} roughness={0.6} />
       </mesh>
-      <mesh position={[-0.07, 0.12, 0.17]}>
-        <sphereGeometry args={[0.035, 12, 12]} />
-        <meshBasicMaterial color="#0a0a12" toneMapped={false} />
-      </mesh>
-      <pointLight position={[0, 0.3, 0]} intensity={6} distance={3} color={COLORS.amber} />
+
+      {/* Arms (pivot at the shoulder). */}
+      <group ref={armL} position={[-0.21, LEG_H + TORSO_H - 0.03, 0]}>
+        <mesh position={[0, -0.11, 0]}>
+          <boxGeometry args={[0.1, 0.22, 0.12]} />
+          <meshStandardMaterial color={CAP} emissive={CAP} emissiveIntensity={0.3} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, -0.23, 0]}>
+          <boxGeometry args={[0.11, 0.08, 0.13]} />
+          <meshStandardMaterial color={SKIN} roughness={0.6} />
+        </mesh>
+      </group>
+      <group ref={armR} position={[0.21, LEG_H + TORSO_H - 0.03, 0]}>
+        <mesh position={[0, -0.11, 0]}>
+          <boxGeometry args={[0.1, 0.22, 0.12]} />
+          <meshStandardMaterial color={CAP} emissive={CAP} emissiveIntensity={0.3} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, -0.23, 0]}>
+          <boxGeometry args={[0.11, 0.08, 0.13]} />
+          <meshStandardMaterial color={SKIN} roughness={0.6} />
+        </mesh>
+      </group>
+
+      {/* Head + cap + face (front faces +Z). */}
+      <group position={[0, LEG_H + TORSO_H, 0]}>
+        <mesh position={[0, 0.13, 0]}>
+          <boxGeometry args={[0.28, 0.26, 0.26]} />
+          <meshStandardMaterial color={SKIN} emissive={SKIN} emissiveIntensity={0.15} roughness={0.6} />
+        </mesh>
+        {/* Cap dome + brim. */}
+        <mesh position={[0, 0.29, 0]}>
+          <boxGeometry args={[0.32, 0.12, 0.3]} />
+          <meshStandardMaterial color={CAP} emissive={CAP} emissiveIntensity={0.35} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, 0.25, 0.18]}>
+          <boxGeometry args={[0.3, 0.05, 0.14]} />
+          <meshStandardMaterial color={CAP} emissive={CAP} emissiveIntensity={0.35} roughness={0.5} />
+        </mesh>
+        {/* Eyes. */}
+        <mesh position={[0.06, 0.15, 0.135]}>
+          <boxGeometry args={[0.04, 0.06, 0.02]} />
+          <meshBasicMaterial color={DARK} toneMapped={false} />
+        </mesh>
+        <mesh position={[-0.06, 0.15, 0.135]}>
+          <boxGeometry args={[0.04, 0.06, 0.02]} />
+          <meshBasicMaterial color={DARK} toneMapped={false} />
+        </mesh>
+        {/* Mustache. */}
+        <mesh position={[0, 0.07, 0.135]}>
+          <boxGeometry args={[0.18, 0.04, 0.03]} />
+          <meshBasicMaterial color={DARK} toneMapped={false} />
+        </mesh>
+      </group>
+
+      <pointLight position={[0, 0.6, 0.3]} intensity={6} distance={3.5} color="#fff2e0" />
     </group>
   )
 }

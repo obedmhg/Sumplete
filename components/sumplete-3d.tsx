@@ -309,24 +309,31 @@ export function Sumplete3D() {
         </div>
 
         {/* On-screen controls (touch / no keyboard). Hold to walk. */}
-        <div className="flex items-center justify-center gap-6 select-none">
-          <div className="grid grid-cols-3 gap-1">
+        <div className="flex touch-none select-none items-center justify-center gap-6">
+          <div className="grid grid-cols-3 gap-1.5">
             <span />
-            <Button variant="outline" size="icon" aria-label="Up" {...hold("ArrowUp")}>
-              <ArrowUp className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-14 w-14 touch-none" aria-label="Up" {...hold("ArrowUp")}>
+              <ArrowUp className="h-6 w-6" />
             </Button>
             <span />
-            <Button variant="outline" size="icon" aria-label="Left" {...hold("ArrowLeft")}>
-              <ArrowLeft className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-14 w-14 touch-none" aria-label="Left" {...hold("ArrowLeft")}>
+              <ArrowLeft className="h-6 w-6" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Down" {...hold("ArrowDown")}>
-              <ArrowDown className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-14 w-14 touch-none" aria-label="Down" {...hold("ArrowDown")}>
+              <ArrowDown className="h-6 w-6" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Right" {...hold("ArrowRight")}>
-              <ArrowRight className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-14 w-14 touch-none" aria-label="Right" {...hold("ArrowRight")}>
+              <ArrowRight className="h-6 w-6" />
             </Button>
           </div>
-          <Button className="h-16 px-6 text-base" onClick={jump} disabled={disabled}>
+          <Button
+            className="h-20 w-20 touch-none rounded-full text-base"
+            onPointerDown={(e) => {
+              e.preventDefault()
+              jump()
+            }}
+            disabled={disabled}
+          >
             Jump
           </Button>
         </div>
