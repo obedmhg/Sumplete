@@ -311,7 +311,6 @@ export function Character({
         )}
       </group>
 
-      <pointLight position={[0, 0.6, 0.3]} intensity={6} distance={3.5} color="#fff2e0" />
     </group>
   )
 }
