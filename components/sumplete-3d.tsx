@@ -18,6 +18,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowRight,
+  Timer,
 } from "lucide-react"
 import {
   generateGame,
@@ -55,7 +56,16 @@ export function Sumplete3D() {
   // "run" = walk the character + jump to cross out. "click" = classic: click a tile.
   const [mode, setMode] = useState<"run" | "click">("run")
 
-  const disabled = gameState.gameWon || gameState.gameRevealed
+  // Challenge: clear every size 3x3 → 9x9 against a clock. Start with 60s; each
+  // cleared level banks +60s and advances to the next size. Hit 0s = game over.
+  const CHALLENGE_MAX = 9
+  const [challenge, setChallenge] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(0)
+  const [challengeResult, setChallengeResult] = useState<null | "won" | "lost">(null)
+  const challengeRef = useRef(false)
+  challengeRef.current = challenge
+
+  const disabled = gameState.gameWon || gameState.gameRevealed || challengeResult !== null
 
   // Continuous character position + currently held movement keys live in refs,
   // so walking never triggers a React re-render. The board is centered on the
@@ -130,6 +140,53 @@ export function Sumplete3D() {
     recenterChar(gridSize)
   }
 
+  // --- Challenge mode ---
+
+  const startChallenge = useCallback(() => {
+    unlockAudio()
+    setChallenge(true)
+    setChallengeResult(null)
+    setShowMistakes(false)
+    setTimeLeft(60)
+    setGridSize(3) // if size changes, the size-effect regenerates; else we do it here
+    setGameState(generateGame(3, allowNegative))
+    recenterChar(3)
+    play("click")
+  }, [allowNegative, recenterChar])
+
+  const quitChallenge = useCallback(() => {
+    setChallenge(false)
+    setChallengeResult(null)
+  }, [])
+
+  // Clearing a level: bank +60s and move to the next size, or finish at 9x9.
+  const advanceChallenge = useCallback(() => {
+    const size = gameStateRef.current.grid.length
+    if (size >= CHALLENGE_MAX) {
+      setChallengeResult("won")
+      return
+    }
+    setTimeLeft((t) => t + 60)
+    setGridSize(size + 1) // size-change effect generates the next puzzle + recenters
+  }, [])
+
+  // Countdown. Pauses once the challenge ends (win/lose) or is quit.
+  useEffect(() => {
+    if (!challenge || challengeResult) return
+    const id = setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) {
+          clearInterval(id)
+          setChallengeResult("lost")
+          play("error")
+          return 0
+        }
+        return t - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [challenge, challengeResult])
+
   // --- Character controls ---
 
   // Cross out / restore a cell, with the right sound + win bookkeeping. Shared by
@@ -143,6 +200,7 @@ export function Sumplete3D() {
     if (state.gameWon && !prev.gameWon) {
       setWinCount((k) => k + 1)
       play("win")
+      if (challengeRef.current) advanceChallenge()
     } else {
       const newlyCorrect =
         state.rowStatus.some((s, i) => s === "correct" && prev.rowStatus[i] !== "correct") ||
@@ -150,7 +208,7 @@ export function Sumplete3D() {
       if (newlyCorrect) play("correct")
     }
     setGameState(state)
-  }, [])
+  }, [advanceChallenge])
 
   const jump = useCallback(() => {
     const c = charRef.current
@@ -204,7 +262,9 @@ export function Sumplete3D() {
         e.preventDefault()
         heldRef.current.add(e.key)
       } else if (e.key === " ") {
-        if (tag === "BUTTON") return // let Space activate a focused button
+        // Always jump on Space. Blur any focused button first so the browser
+        // doesn't also "click" it, and we don't get a double-trigger.
+        if (tag === "BUTTON") ae?.blur()
         e.preventDefault()
         if (!e.repeat) jump()
       }
@@ -328,6 +388,27 @@ export function Sumplete3D() {
           </Button>
         </div>
 
+        {challenge && (
+          <div className="flex w-full items-center justify-center gap-4">
+            <div className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white">
+              Level {gridSize}×{gridSize}{" "}
+              <span className="text-muted-foreground">
+                ({gridSize - 2}/{CHALLENGE_MAX - 2})
+              </span>
+            </div>
+            <div
+              className={`rounded-md px-3 py-1.5 font-mono text-lg font-bold tabular-nums ${
+                timeLeft <= 10 ? "bg-red-600 text-white animate-pulse" : "bg-gray-800 text-emerald-400"
+              }`}
+            >
+              {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+            </div>
+            <Button variant="outline" size="sm" onClick={quitChallenge}>
+              Quit
+            </Button>
+          </div>
+        )}
+
         <div className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700 bg-[#0a0a12]">
           <GameScene
             key={gridSize}
@@ -346,7 +427,30 @@ export function Sumplete3D() {
             onTileClick={handleTileClick}
           />
 
-          {disabled && (
+          {challengeResult && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+              <div className="text-center p-4">
+                <div className="text-2xl md:text-3xl font-bold mb-2">
+                  {challengeResult === "won" ? "🏆 Challenge complete!" : "⏰ Time's up!"}
+                </div>
+                <div className="text-sm text-muted-foreground mb-4">
+                  {challengeResult === "won"
+                    ? "You cleared every level, 3×3 through 9×9."
+                    : `You reached the ${gridSize}×${gridSize} level.`}
+                </div>
+                <div className="flex justify-center gap-2">
+                  <Button onClick={startChallenge} size="lg">
+                    Try again
+                  </Button>
+                  <Button onClick={quitChallenge} variant="outline" size="lg">
+                    Exit
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {disabled && !challenge && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm">
               <div className="text-center p-4">
                 <div className="text-xl md:text-2xl font-bold mb-3">
@@ -421,10 +525,12 @@ export function Sumplete3D() {
                 <RotateCcw className="mr-1 h-4 w-4" />
                 Restart
               </Button>
-              <Button variant="outline" size="sm" onClick={handleReveal}>
-                <Eye className="mr-1 h-4 w-4" />
-                Reveal
-              </Button>
+              {!challenge && (
+                <Button variant="outline" size="sm" onClick={handleReveal}>
+                  <Eye className="mr-1 h-4 w-4" />
+                  Reveal
+                </Button>
+              )}
               {showMistakes && (
                 <Button variant="outline" size="sm" onClick={handleRemoveMistakes}>
                   Remove mistakes
@@ -432,6 +538,7 @@ export function Sumplete3D() {
               )}
             </div>
 
+            {!challenge && (
             <div className="mt-2 pt-4 border-t border-gray-200 dark:border-gray-700">
               <h3 className="text-center font-medium mb-3">New Game Options</h3>
               <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
@@ -469,7 +576,18 @@ export function Sumplete3D() {
                   Share
                 </Button>
               </div>
+
+              <div className="mt-4 flex flex-col items-center gap-1">
+                <Button variant="secondary" onClick={startChallenge}>
+                  <Timer className="mr-2 h-4 w-4" />
+                  Challenge mode
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Clear 3×3 → 9×9 against the clock. 1 min to start, +1 min per level cleared.
+                </p>
+              </div>
             </div>
+            )}
           </div>
         )}
       </div>

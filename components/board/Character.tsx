@@ -48,6 +48,7 @@ export function Character({
   const facing = useRef(0)
   const stepAcc = useRef(0)
   const walkPhase = useRef(0)
+  const fwd = useRef(new THREE.Vector3())
 
   useFrame((state, delta) => {
     const g = root.current
@@ -56,16 +57,28 @@ export function Character({
     const t = state.clock.elapsedTime
     const c = charRef.current
 
-    // --- Movement from held keys (diagonals normalized) ---
-    let vx = 0
-    let vz = 0
+    // --- Movement from held keys, relative to the camera's facing ---
+    // Up = away from the camera, Right = camera-right, so the controls stay
+    // intuitive after the user orbits the view.
+    let f = 0 // forward / back input
+    let r = 0 // strafe input
     if (!disabled) {
       const held = heldRef.current
-      if (held.has("ArrowLeft")) vx -= 1
-      if (held.has("ArrowRight")) vx += 1
-      if (held.has("ArrowUp")) vz -= 1
-      if (held.has("ArrowDown")) vz += 1
+      if (held.has("ArrowLeft")) r -= 1
+      if (held.has("ArrowRight")) r += 1
+      if (held.has("ArrowUp")) f += 1
+      if (held.has("ArrowDown")) f -= 1
     }
+
+    // Camera forward + right projected onto the ground (XZ) plane.
+    state.camera.getWorldDirection(fwd.current)
+    fwd.current.y = 0
+    fwd.current.normalize()
+    const fx = fwd.current.x
+    const fz = fwd.current.z
+    // right = forward × up  =>  (-fz, 0, fx)
+    let vx = fx * f - fz * r
+    let vz = fz * f + fx * r
     const len = Math.hypot(vx, vz)
     if (len > 0) {
       vx /= len
