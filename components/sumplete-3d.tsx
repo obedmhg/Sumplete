@@ -32,6 +32,7 @@ import {
 import { play, unlockAudio, isMuted, setMuted as setSoundMuted } from "@/lib/sound"
 import type { GameSceneProps } from "@/components/board/GameScene"
 import type { CharState } from "@/components/board/constants"
+import { CHARACTERS, characterById, DEFAULT_CHARACTER_ID } from "@/components/board/characters"
 
 // The three.js scene is client-only (it builds canvas textures from `document`).
 const GameScene = dynamic<GameSceneProps>(() => import("@/components/board/GameScene"), {
@@ -55,10 +56,12 @@ export function Sumplete3D() {
   const [jumpKey, setJumpKey] = useState(0)
   // "run" = walk the character + jump to cross out. "click" = classic: click a tile.
   const [mode, setMode] = useState<"run" | "click">("run")
+  const [characterId, setCharacterId] = useState(DEFAULT_CHARACTER_ID)
 
-  // Challenge: clear every size 3x3 → 9x9 against a clock. Start with 60s; each
-  // cleared level banks +60s and advances to the next size. Hit 0s = game over.
+  // Challenge: clear every size 3x3 → 9x9 against a clock. Each level resets the
+  // clock to (size - 2) minutes: 3x3 = 1 min, 4x4 = 2 min, … 9x9 = 7 min.
   const CHALLENGE_MAX = 9
+  const levelTime = (size: number) => (size - 2) * 60
   const [challenge, setChallenge] = useState(false)
   const [timeLeft, setTimeLeft] = useState(0)
   const [challengeResult, setChallengeResult] = useState<null | "won" | "lost">(null)
@@ -106,7 +109,8 @@ export function Sumplete3D() {
     localStorage.setItem("sumplete-size", gridSize.toString())
     localStorage.setItem("sumplete-negative", allowNegative.toString())
     localStorage.setItem("sumplete-mode", mode)
-  }, [gameState, gridSize, allowNegative, mode])
+    localStorage.setItem("sumplete-character", characterId)
+  }, [gameState, gridSize, allowNegative, mode, characterId])
 
   // Restore on mount.
   useEffect(() => {
@@ -124,6 +128,8 @@ export function Sumplete3D() {
     if (savedNegative) setAllowNegative(savedNegative === "true")
     const savedMode = localStorage.getItem("sumplete-mode")
     if (savedMode === "run" || savedMode === "click") setMode(savedMode)
+    const savedChar = localStorage.getItem("sumplete-character")
+    if (savedChar) setCharacterId(characterById(savedChar).id)
     if (savedGame) {
       try {
         setGameState(JSON.parse(savedGame))
@@ -147,7 +153,7 @@ export function Sumplete3D() {
     setChallenge(true)
     setChallengeResult(null)
     setShowMistakes(false)
-    setTimeLeft(60)
+    setTimeLeft(levelTime(3))
     setGridSize(3) // if size changes, the size-effect regenerates; else we do it here
     setGameState(generateGame(3, allowNegative))
     recenterChar(3)
@@ -166,7 +172,7 @@ export function Sumplete3D() {
       setChallengeResult("won")
       return
     }
-    setTimeLeft((t) => t + 60)
+    setTimeLeft(levelTime(size + 1)) // fresh clock for the next, bigger level
     setGridSize(size + 1) // size-change effect generates the next puzzle + recenters
   }, [])
 
@@ -425,6 +431,7 @@ export function Sumplete3D() {
             winCount={winCount}
             mode={mode}
             onTileClick={handleTileClick}
+            characterId={characterId}
           />
 
           {challengeResult && (
@@ -577,13 +584,61 @@ export function Sumplete3D() {
                 </Button>
               </div>
 
+              {mode === "run" && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h3 className="text-center font-medium mb-3">Character</h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 justify-items-center">
+                    {CHARACTERS.map((c) => {
+                      const selected = c.id === characterId
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            unlockAudio()
+                            setCharacterId(c.id)
+                            play("click")
+                          }}
+                          aria-pressed={selected}
+                          title={c.name}
+                          className={`flex w-full flex-col items-center gap-1 rounded-lg border p-2 transition ${
+                            selected
+                              ? "border-cyan-400 ring-2 ring-cyan-400/60 bg-cyan-400/10"
+                              : "border-gray-300 dark:border-gray-700 hover:border-gray-400"
+                          }`}
+                        >
+                          {/* Mini boxy avatar: hat / face+eyes / shirt. */}
+                          <div className="h-9 w-9 overflow-hidden rounded-md border border-black/20">
+                            <div className="h-[35%] w-full" style={{ backgroundColor: c.cap }} />
+                            <div className="relative h-[35%] w-full" style={{ backgroundColor: c.muzzle ?? c.skin }}>
+                              <span
+                                className="absolute left-[28%] top-[35%] h-[3px] w-[3px] rounded-full"
+                                style={{ backgroundColor: c.eye ?? "#1a1014" }}
+                              />
+                              <span
+                                className="absolute right-[28%] top-[35%] h-[3px] w-[3px] rounded-full"
+                                style={{ backgroundColor: c.eye ?? "#1a1014" }}
+                              />
+                            </div>
+                            <div className="h-[30%] w-full" style={{ backgroundColor: c.shirt }} />
+                          </div>
+                          <span className="text-[10px] leading-tight text-center text-muted-foreground">
+                            {c.name}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="mt-4 flex flex-col items-center gap-1">
                 <Button variant="secondary" onClick={startChallenge}>
                   <Timer className="mr-2 h-4 w-4" />
                   Challenge mode
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Clear 3×3 → 9×9 against the clock. 1 min to start, +1 min per level cleared.
+                  Clear 3×3 → 9×9 against the clock. Each level resets the timer: 1 min for 3×3, up to 7 min for 9×9.
                 </p>
               </div>
             </div>
