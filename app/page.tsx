@@ -1,4 +1,4 @@
-import { Sumplete3D } from "@/components/sumplete-3d"
+import { SumpleteSwitcher } from "@/components/sumplete-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function Home() {
@@ -8,7 +8,7 @@ export default function Home() {
         <div className="w-full flex justify-end mb-4">
           <ThemeToggle />
         </div>
-        <Sumplete3D />
+        <SumpleteSwitcher />
       </div>
     </main>
   )
