@@ -22,12 +22,16 @@ export function NumberTile({
   row,
   col,
   charRef,
+  clickable = false,
+  onClick,
 }: {
   cell: CellState
   position: [number, number, number]
   row: number
   col: number
   charRef: MutableRefObject<CharState>
+  clickable?: boolean
+  onClick?: (row: number, col: number) => void
 }) {
   const material = useRef<THREE.MeshStandardMaterial>(null)
   const current = useRef(new THREE.Color(COLORS.cyan))
@@ -68,7 +72,26 @@ export function NumberTile({
   })
 
   return (
-    <group position={position}>
+    <group
+      position={position}
+      onClick={
+        clickable
+          ? (e) => {
+              e.stopPropagation()
+              onClick?.(row, col)
+            }
+          : undefined
+      }
+      onPointerOver={
+        clickable
+          ? (e) => {
+              e.stopPropagation()
+              document.body.style.cursor = "pointer"
+            }
+          : undefined
+      }
+      onPointerOut={clickable ? () => (document.body.style.cursor = "auto") : undefined}
+    >
       <RoundedBox args={[TILE, DEPTH, TILE]} radius={0.1} smoothness={3}>
         <meshStandardMaterial
           ref={material}

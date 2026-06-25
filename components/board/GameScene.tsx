@@ -66,10 +66,12 @@ export type GameSceneProps = {
   disabled: boolean
   jumpKey: number
   winCount: number
+  mode: "run" | "click"
+  onTileClick: (row: number, col: number) => void
 }
 
 export default function GameScene(props: GameSceneProps) {
-  const { size, grid, rowSums, colSums, rowStatus, colStatus, charRef, heldRef, disabled, jumpKey, winCount } = props
+  const { size, grid, rowSums, colSums, rowStatus, colStatus, charRef, heldRef, disabled, jumpKey, winCount, mode, onTileClick } = props
 
   const span = (size + 1) * PITCH
   // On narrow / portrait screens the board is wider than the view, so pull the
@@ -111,6 +113,8 @@ export default function GameScene(props: GameSceneProps) {
             row={i}
             col={j}
             charRef={charRef}
+            clickable={mode === "click" && !disabled}
+            onClick={onTileClick}
           />
         )),
       )}
@@ -122,7 +126,9 @@ export default function GameScene(props: GameSceneProps) {
         <SumLabel key={`c-${j}`} value={value} status={colStatus[j]} position={[coord(j, size), 0, labelEnd]} />
       ))}
 
-      <Character charRef={charRef} heldRef={heldRef} size={size} disabled={disabled} jumpKey={jumpKey} />
+      {mode === "run" && (
+        <Character charRef={charRef} heldRef={heldRef} size={size} disabled={disabled} jumpKey={jumpKey} />
+      )}
 
       <Burst fire={winCount} origin={[0, 0.5, 0]} />
       <Effects />

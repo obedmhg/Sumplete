@@ -52,6 +52,8 @@ export function Sumplete3D() {
   const [muted, setMuted] = useState(false)
   const [winCount, setWinCount] = useState(0)
   const [jumpKey, setJumpKey] = useState(0)
+  // "run" = walk the character + jump to cross out. "click" = classic: click a tile.
+  const [mode, setMode] = useState<"run" | "click">("run")
 
   const disabled = gameState.gameWon || gameState.gameRevealed
 
@@ -93,7 +95,8 @@ export function Sumplete3D() {
     localStorage.setItem("sumplete-game", JSON.stringify(gameState))
     localStorage.setItem("sumplete-size", gridSize.toString())
     localStorage.setItem("sumplete-negative", allowNegative.toString())
-  }, [gameState, gridSize, allowNegative])
+    localStorage.setItem("sumplete-mode", mode)
+  }, [gameState, gridSize, allowNegative, mode])
 
   // Restore on mount.
   useEffect(() => {
@@ -109,6 +112,8 @@ export function Sumplete3D() {
       recenterChar(parsed)
     }
     if (savedNegative) setAllowNegative(savedNegative === "true")
+    const savedMode = localStorage.getItem("sumplete-mode")
+    if (savedMode === "run" || savedMode === "click") setMode(savedMode)
     if (savedGame) {
       try {
         setGameState(JSON.parse(savedGame))
@@ -127,15 +132,11 @@ export function Sumplete3D() {
 
   // --- Character controls ---
 
-  const jump = useCallback(() => {
-    const c = charRef.current
+  // Cross out / restore a cell, with the right sound + win bookkeeping. Shared by
+  // the runner's jump and the click mode's tile taps.
+  const toggleCell = useCallback((row: number, col: number) => {
     const prev = gameStateRef.current
-    unlockAudio()
-    setJumpKey((k) => k + 1)
-    play("jump")
-
-    if (!c.valid) return // standing off the board — just hop
-    const { state, result } = toggleDelete(prev, c.row, c.col)
+    const { state, result } = toggleDelete(prev, row, col)
     if (result === "blocked") return
     if (result === "deleted") play("delete")
 
@@ -151,6 +152,36 @@ export function Sumplete3D() {
     setGameState(state)
   }, [])
 
+  const jump = useCallback(() => {
+    const c = charRef.current
+    unlockAudio()
+    setJumpKey((k) => k + 1)
+    play("jump")
+    if (!c.valid) return // standing off the board — just hop
+    toggleCell(c.row, c.col)
+  }, [toggleCell])
+
+  const handleTileClick = useCallback(
+    (row: number, col: number) => {
+      if (gameStateRef.current.gameWon || gameStateRef.current.gameRevealed) return
+      unlockAudio()
+      toggleCell(row, col)
+    },
+    [toggleCell],
+  )
+
+  // Switching mode: clear held keys; recenter the character for run mode, or park
+  // it off the board for click mode so no tile shows the amber "occupied" glow.
+  const changeMode = useCallback(
+    (next: "run" | "click") => {
+      heldRef.current.clear()
+      if (next === "run") recenterChar(gridSize)
+      else charRef.current = { ...charRef.current, valid: false }
+      setMode(next)
+    },
+    [gridSize, recenterChar],
+  )
+
   const press = useCallback((key: string) => {
     unlockAudio()
     heldRef.current.add(key)
@@ -160,6 +191,7 @@ export function Sumplete3D() {
   }, [])
 
   useEffect(() => {
+    if (mode !== "run") return
     const MOVE_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
 
     function onKeyDown(e: KeyboardEvent) {
@@ -192,7 +224,7 @@ export function Sumplete3D() {
       window.removeEventListener("keyup", onKeyUp)
       window.removeEventListener("blur", clearHeld)
     }
-  }, [jump])
+  }, [jump, mode])
 
   // --- Helper actions ---
 
@@ -261,12 +293,39 @@ export function Sumplete3D() {
     <Card className="w-full p-4 md:p-6 shadow-lg">
       <div className="flex flex-col items-center space-y-4 md:space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl md:text-3xl font-bold mb-2">Sumplete Runner</h1>
+          <h1 className="text-2xl md:text-3xl font-bold mb-2">
+            {mode === "run" ? "Sumplete Runner" : "Sumplete"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Roam the hopper with the arrow keys (walk anywhere, even off the board) and press{" "}
-            <span className="font-semibold">Space</span> to jump: jump on a number to cross it out, jump again to
-            restore it. Clear each row/column down to its target sum.
+            {mode === "run" ? (
+              <>
+                Roam the hopper with the arrow keys (walk anywhere, even off the board) and press{" "}
+                <span className="font-semibold">Space</span> to jump: jump on a number to cross it out, jump again to
+                restore it. Clear each row/column down to its target sum.
+              </>
+            ) : (
+              <>
+                Click a number to cross it out, click again to restore it. Clear each row/column down to its target sum.
+              </>
+            )}
           </p>
+        </div>
+
+        <div className="inline-flex rounded-lg border border-gray-700 p-1">
+          <Button
+            variant={mode === "run" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => changeMode("run")}
+          >
+            Runner
+          </Button>
+          <Button
+            variant={mode === "click" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => changeMode("click")}
+          >
+            Classic click
+          </Button>
         </div>
 
         <div className="relative w-full h-[60vh] min-h-[380px] overflow-hidden rounded-xl border border-gray-700 bg-[#0a0a12]">
@@ -283,6 +342,8 @@ export function Sumplete3D() {
             disabled={disabled}
             jumpKey={jumpKey}
             winCount={winCount}
+            mode={mode}
+            onTileClick={handleTileClick}
           />
 
           {disabled && (
@@ -308,7 +369,8 @@ export function Sumplete3D() {
           </button>
         </div>
 
-        {/* On-screen controls (touch / no keyboard). Hold to walk. */}
+        {/* On-screen controls (touch / no keyboard). Hold to walk. Runner mode only. */}
+        {mode === "run" && (
         <div className="flex touch-none select-none items-center justify-center gap-6">
           <div className="grid grid-cols-3 gap-1.5">
             <span />
@@ -337,6 +399,7 @@ export function Sumplete3D() {
             Jump
           </Button>
         </div>
+        )}
 
         {!disabled && (
           <div className="flex flex-col gap-4 w-full">
